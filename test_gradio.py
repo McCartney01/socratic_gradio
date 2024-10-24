@@ -7,7 +7,7 @@ import uuid
 
 key = os.getenv('OPENAI_API_KEY') # api key here
 max_try = 3
-client = OpenAI(api_key=key)
+client = OpenAI(api_key=key, base_url='https://open.momodel.cn/v1')
 
 def agent_calling(messages):
     count = 0
@@ -30,6 +30,7 @@ def load_steps():
         return json.load(file)
 
 def get_file(chat_history):
+    os.makedirs('history', exist_ok=True)
     filename = 'history/'+str(uuid.uuid4())+'.json'
     with open(filename, 'w', encoding='utf-8') as file:
         json.dump(chat_history, file, ensure_ascii=False, indent=4)
@@ -145,5 +146,5 @@ with gr.Blocks() as iface:
 
 # 运行Gradio应用
 if __name__ == "__main__":
-    iface.queue()
-    iface.launch(share=True)
+    iface.queue(default_concurrency_limit=None)
+    iface.launch()
