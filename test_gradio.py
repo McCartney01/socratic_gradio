@@ -1,13 +1,13 @@
 import gradio as gr
 from openai import OpenAI
-import json
-import prompts
 import os
 import uuid
+import json
+import prompts
 
 key = os.getenv('OPENAI_API_KEY') # api key here
 max_try = 3
-client = OpenAI(api_key=key, base_url='https://open.momodel.cn/v1')
+client = OpenAI(api_key=key)
 
 def agent_calling(messages):
     count = 0
@@ -16,9 +16,16 @@ def agent_calling(messages):
         try:
             completion = client.chat.completions.create(
                 model='gpt-4o',
-                messages=messages
+                messages=messages,
+                stream=True
             )
-            return completion.choices[0].message.content
+            response = ""
+            for chunk in completion:
+                chunk_message = getattr(chunk.choices[0].delta, 'content', None)
+                if chunk_message:
+                    response += chunk_message
+                yield response
+            return
         except Exception as e:
             if count > max_try:
                 raise Exception(f'调用AI代理时出错。错误：{e}')
@@ -31,7 +38,7 @@ def load_steps():
 
 def get_file(chat_history):
     os.makedirs('history', exist_ok=True)
-    filename = 'history/'+str(uuid.uuid4())+'.json'
+    filename = 'history/' + str(uuid.uuid4()) + '.json'
     with open(filename, 'w', encoding='utf-8') as file:
         json.dump(chat_history, file, ensure_ascii=False, indent=4)
     return filename
@@ -43,86 +50,81 @@ def chat_interface(message, current_step, messages, chat_history):
         # 开始新的步骤
         if current_step < len(steps):
             step = steps[current_step]
-            response1 = agent_calling([
+            gen = agent_calling([
                 {'role': 'system', 'content': prompts.subtasks_start_system},
                 {'role': 'user', 'content': prompts.subtasks_start + step}
             ])
+            for response1 in gen:
+                yield [response1], current_step, messages, chat_history
             chat_history.append(f"【老师】：{response1}")
             messages = [
                 {'role': 'system', 'content': prompts.subtasks_system},
                 {'role': 'user', 'content': prompts.subtasks + steps[current_step] + '\n#输出：'}
             ]
-            response2 = agent_calling(messages)
+            gen = agent_calling(messages)
+            for response2 in gen:
+                yield [response1, response2], current_step, messages, chat_history
             messages.append({'role': 'assistant', 'content': response2})
             chat_history.append(f"【老师】：{response2}")
-            # save_history(chat_history, filename)
-            return [response1, response2], current_step, messages, chat_history
         
-        # 全部步骤结束，程序自动保存
+        # 全部步骤结束
         else:
             current_step = 0
-            # save_history(chat_history, filename)
-            return ["所有步骤已完成。是否要重新开始？"], current_step, messages, chat_history
-    
-    # 跳过当前步骤
-    if message.lower() == '\\skip':
-        current_step += 1
-        if current_step < len(steps): return ["好的，我们跳过这个步骤。"], current_step, messages, chat_history
-        else:
-            current_step = 0
-            messages = []
-            return ["好的，我们跳过这个步骤。", "所有步骤已完成。是否要重新开始？"], current_step, messages, chat_history
+            yield ["所有步骤已完成。是否要重新开始？"], current_step, messages, chat_history
+
+        return
     
     else:
         messages.append({'role': 'user', 'content': message})
         chat_history.append(f"【学生】：{message}")
-        response1 = agent_calling(messages)
-        messages.append({'role': 'assistant', 'content': response1})
-        chat_history.append(f"【老师】：{response1}")
-        
-        # 添加步骤结束后的完整代码检查
-        if '【结束】' in response1:
-            response1 = response1.replace('【结束】', '')
-        #     messages = [
-        #         {'role': 'system', 'content': prompts.subtasks_end_system},
-        #         {'role': 'user', 'content': prompts.subtasks_end + steps[current_step]}
-        #     ]
-        #     response2 = agent_calling(messages)
-        #     messages.append({'role': 'assistant', 'content': response2})
-        #     chat_history.append(f"【老师】：{response2}")
-        #     current_step += 1
-        #     return [response1, response2]
-
-        # # 当前步骤结束，进行下一步骤
-        # elif '【正确】' in response1:
-        #     response1 = response1.replace('【正确】', '')
+        gen = agent_calling(messages)
+        flag = False
+        for response in gen:
+            if '【结束】' in response:
+                flag = True
+            else:
+                yield [response], current_step, messages, chat_history
+        messages.append({'role': 'assistant', 'content': response})
+        chat_history.append(f"【老师】：{response}")
+        if flag:
+            response = response.replace('【结束】', '')
+            yield [response], current_step, messages, chat_history
             current_step += 1
             messages = []
-            response, current_step, messages, chat_history = chat_interface("", current_step, messages, chat_history)
-            response.insert(0, response1)
-            return response, current_step, messages, chat_history
-
-        return [response1], current_step, messages, chat_history
+            gen = chat_interface("", current_step, messages, chat_history)
+            for result in gen:
+                n_response, current_step, messages, chat_history = result
+                n_response.insert(0, response)
+                yield n_response, current_step, messages, chat_history
 
 def user(user_message, history):
     return "", history + [[user_message, None]]
 
 def bot(history, current_step, messages, chat_history):
     user_message = history[-1][0]
-    bot_message, current_step, messages, chat_history = chat_interface(user_message, current_step, messages, chat_history)
-    # save_history(chat_history, filename)
-    for i in range(len(bot_message)):
-        history.append([None, bot_message[i]])
-    return history, current_step, messages, chat_history
+    gen = chat_interface(user_message, current_step, messages, chat_history)
+    for result in gen:
+        bot_message, step, messages, chat_history = result
+        if not history[-1][0] and step != current_step:
+            history = history[:-(len(bot_message)-1)]
+            current_step = step
+        elif not history[-1][0]:
+            history = history[:-len(bot_message)]
+        for i in range(len(bot_message)):
+            history.append([None, bot_message[i]])
+        yield history, current_step, messages, chat_history
 
 def reset():
     current_step = 0
     messages = []
     chat_history = []
-    bot_message, current_step, messages, chat_history = chat_interface("", current_step, messages, chat_history)
-    history = [[None, bot_message[0]], [None, bot_message[1]]]
-    # save_history(chat_history, filename)
-    return history, current_step, messages, chat_history
+    gen = chat_interface("", current_step, messages, chat_history)
+    for result in gen:
+        history = []
+        bot_message, current_step, messages, chat_history = result
+        for i in range(len(bot_message)):
+            history.append([None, bot_message[i]])
+        yield history, current_step, messages, chat_history
 
 steps = load_steps()
 
@@ -131,8 +133,8 @@ with gr.Blocks() as iface:
     
     # 初始化
     current_step = gr.State(value=0)
-    chat_history = gr.State(value=[])
     messages = gr.State(value=[])
+    chat_history = gr.State(value=[])
 
     chatbot = gr.Chatbot(label="对话历史", value=[])
     msg = gr.Textbox(label="输入")
