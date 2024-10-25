@@ -7,7 +7,7 @@ import prompts
 
 key = os.getenv('OPENAI_API_KEY') # api key here
 max_try = 3
-client = OpenAI(api_key=key)
+client = OpenAI(api_key=key, base_url='https://open.momodel.cn/v1')
 
 def agent_calling(messages):
     count = 0
