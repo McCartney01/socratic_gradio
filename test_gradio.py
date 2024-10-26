@@ -38,7 +38,7 @@ def load_steps():
 
 def get_file(chat_history):
     os.makedirs('history', exist_ok=True)
-    filename = 'history/' + str(uuid.uuid4()) + '.json'
+    filename = 'history/history_' + str(uuid.uuid4()) + '.json'
     with open(filename, 'w', encoding='utf-8') as file:
         json.dump(chat_history, file, ensure_ascii=False, indent=4)
     return filename
@@ -149,4 +149,4 @@ with gr.Blocks() as iface:
 # 运行Gradio应用
 if __name__ == "__main__":
     iface.queue(default_concurrency_limit=None)
-    iface.launch(server_name="0.0.0.0")
+    iface.launch(server_name="0.0.0.0", max_threads=100)
