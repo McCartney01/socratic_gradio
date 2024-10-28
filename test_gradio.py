@@ -149,4 +149,4 @@ with gr.Blocks() as iface:
 # 运行Gradio应用
 if __name__ == "__main__":
     iface.queue(default_concurrency_limit=None)
-    iface.launch(server_name="0.0.0.0", max_threads=100)
+    iface.launch(server_name="0.0.0.0", root_path="/socratic", max_threads=100)
