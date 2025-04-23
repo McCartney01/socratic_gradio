@@ -7,7 +7,7 @@ import prompts
 
 key = os.getenv('OPENAI_API_KEY') # api key here
 max_try = 3
-client = OpenAI(api_key=key, base_url='https://open.momodel.cn/v1')
+client = OpenAI(api_key=key, base_url='https://ark.cn-beijing.volces.com/api/v3')
 
 def agent_calling(messages):
     count = 0
@@ -15,7 +15,7 @@ def agent_calling(messages):
         count += 1
         try:
             completion = client.chat.completions.create(
-                model='gpt-4o',
+                model='deepseek-v3-250324',
                 messages=messages,
                 stream=True
             )
